@@ -111,6 +111,19 @@ class Board(object):
         Returns:
             bool: True if the input path is valid
         '''
+        if not len(set(path)) == len(path):
+            return False
+
+        def go(xs):
+            if len(xs) <= 1:
+                return True
+            neighbors = list(self.neighbors(xs[0]))
+            neighbors = [neighbor.territory_id for neighbor in neighbors]
+            if xs[1] in neighbors:
+                return self.is_valid_path(xs[1:])
+            else:
+                return False
+        return go(path)
 
     
     def is_valid_attack_path(self, path):
@@ -130,6 +143,11 @@ class Board(object):
         Returns:
             bool: True if the path is an attack path
         '''
+        ret = self.is_valid_path(path)
+        ret &= len(path) > 1
+        for tid in path[1:]:
+            ret &= self.owner(tid) != self.owner(path[0])
+        return ret
 
 
     def cost_of_attack_path(self, path):
@@ -143,6 +161,10 @@ class Board(object):
         Returns:
             bool: the number of enemy armies in the path
         '''
+        army = 0
+        for i in path[1:]:
+            army += self.data[i].armies
+        return army
 
 
     def shortest_path(self, source, target):
@@ -161,6 +183,24 @@ class Board(object):
         Returns:
             [int]: a valid path between source and target that has minimum length; this path is guaranteed to exist
         '''
+        path_dict = dict()
+        path_dict[source] = [source]
+        queue = deque([])
+        queue.append(source)
+        visited_territory = set()
+        visited_territory.add(source)
+
+        while queue:
+            current_territory = queue.popleft()
+            if current_territory == target:
+                return path_dict[current_territory]
+            for territory in list(risk.definitions.territory_neighbors[current_territory]):
+                if territory not in visited_territory:
+                    new_territory = copy.deepcopy(path_dict[current_territory])
+                    new_territory.append(territory)
+                    path_dict[territory] = new_territory
+                    queue.append(territory)
+                visited_territory.add(territory)
 
 
     def can_fortify(self, source, target):
@@ -176,7 +216,26 @@ class Board(object):
         Returns:
             bool: True if reinforcing the target from the source territory is a valid move
         '''
+        path_dict = dict()
+        path_dict[source] = [source]
+        queue = deque()
+        queue.append(source)
+        visited_t = set()
+        visited_t.add(source)
 
+        while queue:
+            current_t = queue.popleft()
+            if current_t == target:
+                return True
+            friend = [x.territory_id for x in self.friendly_neighbors(current_t)]
+            for t in friend:
+                if t not in visited_t:
+                    new_t = copy.deepcopy(path_dict[current_t])
+                    new_t.append(t)
+                    path_dict[t] = new_t
+                    queue.append(t)
+                visited_t.add(t)
+        return False
 
     def cheapest_attack_path(self, source, target):
         '''
@@ -191,7 +250,36 @@ class Board(object):
         Returns:
             [int]: a list of territory_ids representing the valid attack path; if no path exists, then it returns None instead
         '''
+        if self.owner(source) == self.owner(target):
+            return None
 
+        path_dict = dict()
+        path_dict[source] = [source]
+        queue = heapdict.heapdict()
+        queue[source] = 0
+        visited_t = set()
+        visited_t.add(source)
+
+        while queue:
+            current_t, priority = queue.peekitem()
+            queue.pop(current_t)
+            if current_t == target:
+                return path_dict[current_t]
+            for t in list(risk.definitions.territory_neighbors[current_t]):
+                if t in visited_t or self.owner(t) == self.owner(source):
+                    pass
+                else:
+                    path_copy = copy.deepcopy(path_dict[current_t])
+                    path_copy.append(t)
+                    priority_path = priority + self.armies(t)
+                    if t not in queue:
+                        path_dict[t] = path_copy
+                        queue[t] = priority_path
+                    elif priority_path < queue[t]:
+                        path_dict[t] = path_copy
+                        queue[t] = priority_path
+            visited_t.add(current_t)
+        return None
 
     def can_attack(self, source, target):
         '''
@@ -202,6 +290,10 @@ class Board(object):
         Returns:
             bool: True if a valid attack path exists between source and target; else False
         '''
+        if self.cheapest_attack_path(source, target):
+            return True
+        else:
+            return False
 
 
     # ======================= #
