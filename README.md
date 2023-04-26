@@ -2,7 +2,7 @@
 
 [![](https://github.com/lwelch25/risk/workflows/tests/badge.svg)](https://github.com/lwelch25/risk/actions?query=workflow%3Atests)
 
-You will implement several graph algorithms to develop a tool for the game of Risk.
+YYou will implement several graph algorithms to develop a tool for the game of Risk.
 
 **Learning Objectives:**
 
