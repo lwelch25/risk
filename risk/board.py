@@ -1,11 +1,11 @@
 import os
 import random
-from collections import namedtuple
-
+from collections import namedtuple, deque
+import copy
+import heapdict
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.path import Path
-
 import risk.definitions
 
 Territory = namedtuple('Territory', ['territory_id', 'player_id', 'armies'])
@@ -183,31 +183,24 @@ class Board(object):
         Returns:
             [int]: a valid path between source and target that has minimum length; this path is guaranteed to exist
         '''
-        stack = []
-        stack.append(source)
-        ys = deque([])
-        ys.append(stack)
-        board = risk.definitions.territory_names
-        board = list(board.keys())
+        path_dict = dict()
+        path_dict[source] = [source]
+        queue = deque([])
+        queue.append(source)
+        visited_territory = set()
+        visited_territory.add(source)
 
-        if source == target:
-            return stack
-
-        while ys:
-            ref = ys.popleft()
-            neighbors = list(self.neighbors(ref[-1]))
-            neighbors = [neighbor.territory_id for neighbor in neighbors]
-            board_info = [territory for territory in board if territory
-                          in neighbors]
-            for territory in board_info:
-                if territory == target:
-                    ref.append(territory)
-                    return ref
-                lci = copy.deepcopy(ref)
-                lci.append(territory)
-                ys.append(lci)
-                board.remove(territory)
-
+        while queue:
+            current_territory = queue.popleft()
+            if current_territory == target:
+                return path_dict[current_territory]
+            for territory in list(risk.definitions.territory_neighbors[current_territory]):
+                if territory not in visited_territory:
+                    new_territory = copy.deepcopy(path_dict[current_territory])
+                    new_territory.append(territory)
+                    path_dict[territory] = new_territory
+                    queue.append(territory)
+                visited_territory.add(territory)
 
     def can_fortify(self, source, target):
         '''
@@ -222,37 +215,25 @@ class Board(object):
         Returns:
             bool: True if reinforcing the target from the source territory is a valid move
         '''
-        stack = []
-        stack.append(source)
-        ys = deque([])
-        ys.append(stack)
-        board = risk.definitions.territory_names
-        board = list(board.keys())
-        if source == target:
-            return True
-        origin = self.owner(source)
-        print("origin=", origin)
+        path_dict = dict()
+        path_dict[source] = [source]
+        queue = deque()
+        queue.append(source)
+        visited_t = set()
+        visited_t.add(source)
 
-        while ys:
-            ref = ys.popleft()
-            neighbors = list(self.neighbors(ref[-1]))
-            neighbors = [neighbor.territory_id for neighbor in neighbors]
-            neighbors = [neighbor for neighbor in neighbors if
-                         origin == self.owner(neighbor)]
-            print("neighbors=", neighbors)
-            if not neighbors:
-                return False
-
-            board_info = [territory for territory in board if territory
-                          in neighbors]
-            for territory in board_info:
-                if territory == target:
-                    ref.append(territory)
-                    return True
-                lci = copy.deepcopy(ref)
-                lci.append(territory)
-                ys.append(lci)
-                board.remove(territory)
+        while queue:
+            current_t = queue.popleft()
+            if current_t == target:
+                return True
+            friend = [x.territory_id for x in self.friendly_neighbors(current_t)]
+            for t in friend:
+                if t not in visited_t:
+                    new_t = copy.deepcopy(path_dict[current_t])
+                    new_t.append(t)
+                    path_dict[t] = new_t
+                    queue.append(t)
+                visited_t.add(t)
         return False
 
     def cheapest_attack_path(self, source, target):
@@ -268,36 +249,36 @@ class Board(object):
         Returns:
             [int]: a list of territory_ids representing the valid attack path; if no path exists, then it returns None instead
         '''
-        if source == target:
+        if self.owner(source) == self.owner(target):
             return None
-        cheapest_paths = {}
-        cheapest_paths[source] = [source]
-        heap = heapdict.heapdict()
-        heap[source] = 0
-        visited = set()
 
-        while heap:
-            cur_ter, priority = heap.popitem()
-            if cur_ter == target:
-                return cheapest_paths[cur_ter]
-            visited.add(cur_ter)
-            neighbors = [neighbor.territory_id for neighbor in
-                         self.neighbors(cur_ter) if neighbor.territory_id
-                         not in visited]
-            neighbors = [neighbor for neighbor in neighbors if
-                         self.owner(neighbor) != self.owner(source)]
-            for territory in neighbors:
-                lci = copy.deepcopy(cheapest_paths[cur_ter])
-                lci.append(territory)
-                priority_path = priority + self.armies(territory)
-                if territory not in heap:
-                    cheapest_paths[territory] = lci
-                    heap[territory] = priority_path
-                elif priority_path < heap[territory]:
-                    cheapest_paths[territory] = lci
-                    heap[territory] = priority_path
+        path_dict = dict()
+        path_dict[source] = [source]
+        queue = heapdict.heapdict()
+        queue[source] = 0
+        visited_t = set()
+        visited_t.add(source)
+
+        while queue:
+            current_t, priority = queue.peekitem()
+            queue.pop(current_t)
+            if current_t == target:
+                return path_dict[current_t]
+            for t in list(risk.definitions.territory_neighbors[current_t]):
+                if t in visited_t or self.owner(t) == self.owner(source):
+                    pass
+                else:
+                    path_copy = copy.deepcopy(path_dict[current_t])
+                    path_copy.append(t)
+                    priority_path = priority + self.armies(t)
+                    if t not in queue:
+                        path_dict[t] = path_copy
+                        queue[t] = priority_path
+                    elif priority_path < queue[t]:
+                        path_dict[t] = path_copy
+                        queue[t] = priority_path
+            visited_t.add(current_t)
         return None
-
 
     def can_attack(self, source, target):
         '''
@@ -308,36 +289,10 @@ class Board(object):
         Returns:
             bool: True if a valid attack path exists between source and target; else False
         '''
-        if source == target:
+        if self.cheapest_attack_path(source, target):
+            return True
+        else:
             return False
-        cheapest_paths = {}
-        cheapest_paths[source] = [source]
-        heap = heapdict.heapdict()
-        heap[source] = 0
-        visited = set()
-
-        while heap:
-            cur_ter, priority = heap.popitem()
-            if cur_ter == target:
-                return True
-            visited.add(cur_ter)
-            neighbors = [neighbor.territory_id for neighbor in
-                         self.neighbors(cur_ter) if neighbor.territory_id
-                         not in visited]
-            neighbors = [neighbor for neighbor in neighbors if
-                         self.owner(neighbor) != self.owner(source)]
-            for territory in neighbors:
-                lci = copy.deepcopy(cheapest_paths[cur_ter])
-                lci.append(territory)
-                priority_path = priority + self.armies(territory)
-                if territory not in heap:
-                    cheapest_paths[territory] = lci
-                    heap[territory] = priority_path
-                elif priority_path < heap[territory]:
-                    cheapest_paths[territory] = lci
-                    heap[territory] = priority_path
-        return False
-
 
     # ======================= #
     # == Continent Methods == #
